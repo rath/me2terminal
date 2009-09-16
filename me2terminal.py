@@ -1,4 +1,4 @@
-#!/usr/local/bin/python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # 
 # Author: Jang-Ho Hwang <rath@xrath.com>
