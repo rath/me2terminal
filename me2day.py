@@ -5,7 +5,7 @@
 # Version: 1.0, since 2009/09/13
 #
 import httplib, urllib
-import base64, md5, random
+import base64, hashlib, random
 from datetime import datetime
 
 import json
@@ -66,8 +66,8 @@ class me2API:
             self.headers['Authorization'] = "Basic %s" % self._create_auth(username,userkey)
 
     def _create_auth(self, id, pw):
-        nonce = md5.md5((random.random()*(10**10)).__str__()).hexdigest()[:8]
-        return base64.b64encode("%s:%s%s" % (id, nonce, md5.md5(nonce+pw).hexdigest()))
+        nonce = hashlib.md5((random.random()*(10**10)).__str__()).hexdigest()[:8]
+        return base64.b64encode("%s:%s%s" % (id, nonce, hashlib.md5(nonce+pw).hexdigest()))
 
     def _get(self, uri, processor=None, params={}):
         con = httplib.HTTPConnection(self.HOST, 80, timeout=10)
