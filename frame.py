@@ -17,7 +17,7 @@ def main_loop(parent, user_id):
     curses.noecho()
 
     show_tag = True
-    api = me2API(user_id, '00000000', '6c82a48d9fd3fee0b2819251cc4fef98')
+    api = me2API(user_id, '73935122', '6c82a48d9fd3fee0b2819251cc4fef98')
 
     curses.init_pair(1, curses.COLOR_YELLOW, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
@@ -26,6 +26,7 @@ def main_loop(parent, user_id):
     curses.init_pair(5, curses.COLOR_BLUE, curses.COLOR_BLACK) # tag
     curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLACK) # metoo/comment count
     curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # highlighted username
+    curses.init_pair(8, curses.COLOR_GREEN, curses.COLOR_BLACK) # status bar
 
     post_window = curses.newwin( curses.LINES-7, curses.COLS-4, 3, 1 )
     post_window.keypad(1)
@@ -41,17 +42,22 @@ def main_loop(parent, user_id):
     cur_idx  = 0    # for navigate, column. (0, 1, 2, 3)
     cur_row = -1
 
-    while True:
-        parent.addstr(2, 3, "페이지를 읽어오고 있습니다. 잠시만 기다려주세요...", curses.A_NORMAL)
-        parent.refresh()
-        
-        post_window.refresh()
+    skip_request = False
 
-        posts = api.get_posts({
-            'offset': offset, 
-            'count' : 20, 
-            'scope' : scope
-        }, cur_userid)
+    while True:
+        
+        if not skip_request:
+            parent.addstr(parent.getmaxyx()[0]-2, 3, "서버에 요청을 보내고 있습니다. 잠시만 기다려주세요...", curses.A_BOLD | curses.color_pair(8))
+            parent.refresh()
+        
+            post_window.refresh()
+
+            posts = api.get_posts({
+                'offset': offset, 
+                'count' : 20, 
+                'scope' : scope
+            }, cur_userid)
+        skip_request = False
         
         parent.erase()
         me2terminal.paint_background(parent)
@@ -74,30 +80,35 @@ def main_loop(parent, user_id):
                 scope = 'all'
                 scope_label = '미투데이'
                 offset = 0
+                cur_idx = 0; cur_row = -1; cur_post = None
                 break
             if ch==ord('2'): # all friends
                 cur_userid = user_id
                 scope = 'friend[all]'
                 scope_label = '친구들은'
                 offset = 0
+                cur_idx = 0; cur_row = -1; cur_post = None
                 break
             if ch==ord('3'): # best friends
                 cur_userid = user_id
                 scope = 'friend[best]'
                 scope_label = '관심친구들은'
                 offset = 0
+                cur_idx = 0; cur_row = -1; cur_post = None
                 break
             if ch==ord('4'): # close friends
                 cur_userid = user_id
                 scope = 'friend[close]'
                 scope_label = '친한친구들은'
                 offset = 0
+                cur_idx = 0; cur_row = -1; cur_post = None
                 break
             if ch==ord('5'): # supporter friends
                 cur_userid = user_id
                 scope = 'friend[supporter]'
                 scope_label = '지지자들은'
                 offset = 0
+                cur_idx = 0; cur_row = -1; cur_post = None
                 break
 
             redraw = lambda: show_posts(post_window, posts, offset, show_tag, loc_map, cur_post, cur_idx)
@@ -169,15 +180,32 @@ def main_loop(parent, user_id):
                     show_metoos(persons, loc_map[cur_post])
                     redraw()
                 if cur_post and cur_idx==3: # show comments 
-                    comments = api.get_comments({'post_id': cur_post})
-                    show_comments(posts[cur_row], comments, loc_map[cur_post])
+                    show_comments(api, posts[cur_row], loc_map[cur_post])
                     redraw()
 
             if ch==ord('r'): # refresh current page.
                 cur_idx = 0; cur_row = -1
                 break
             if ch==ord('i'): # input mode.
-                pass
+                parent.addstr(parent.getmaxyx()[0]-4, 3, "     본문  ",
+                    curses.color_pair(4)|curses.A_REVERSE|curses.A_BOLD|curses.A_UNDERLINE)
+                curses.echo()
+                content = parent.getstr(parent.getyx()[0], 3+12)
+                curses.noecho()
+                if len(content.strip())==0:
+                    skip_request = True
+                    break
+                parent.addstr(parent.getmaxyx()[0]-3, 3, "     태그  ",
+                    curses.color_pair(4)|curses.A_REVERSE|curses.A_BOLD|curses.A_UNDERLINE)
+                curses.echo()
+                tags = parent.getstr(parent.getyx()[0], 3+12)
+                curses.noecho()
+                api.create_post({'post[body]':content, 'post[tags]':tags})
+                
+                offset = 0
+                cur_idx = 0; cur_row = -1
+                break
+                    
             if ch==ord('p'): # previous page
                 offset -= printed_line
                 if offset < 0: offset = 0
@@ -332,9 +360,11 @@ def show_metoos(persons, metoo_yx):
     w.refresh()
     del w
 
-def show_comments(post, comments, metoo_yx):
+def show_comments(api, post, metoo_yx):
     cols = curses.COLS-10
     rows = curses.LINES-10
+
+    comments = api.get_comments({'post_id': post.id})
 
     limit_y = rows-5
     w = curses.newwin(rows, cols, (curses.LINES-rows)/2, (curses.COLS-cols)/2)
@@ -363,7 +393,10 @@ def show_comments(post, comments, metoo_yx):
             if y > limit_y:
                 break
 
-        percent = (scroll_offset + printed)*100 / len(comments)
+        if len(comments)==0: 
+            percent = 100
+        else: 
+            percent = (scroll_offset + printed)*100 / len(comments)
         if scroll_offset + printed >= len(comments):
             percent = 100
         w.addstr(sy-1, cols-2-14, "%3d개중 %3d%%" % (len(comments), percent))
@@ -372,15 +405,28 @@ def show_comments(post, comments, metoo_yx):
         q = False
         while True:
             ch = w.getch()
-            if ch==ord('j'):
+            if ch==ord('j'): # page up 
                 if scroll_offset+printed < len(comments):
                     scroll_offset += 1 
                     break
-            if ch==ord('k'):
+            if ch==ord('k'): # page down
                 if scroll_offset > 0:
                     scroll_offset -= 1
                     break
-            if ch in (ord('q'), 27, ord(' ')):
+            if ch==ord('i'): # create a comment.
+                w.addstr(rows-2, 2, "댓글 남기기:", 
+                    curses.color_pair(4)|curses.A_REVERSE|curses.A_BOLD)
+                curses.echo()
+                content = w.getstr(w.getyx()[0], w.getyx()[1]+1) 
+                curses.noecho()
+                if len(content.strip()) > 0:
+                    api.create_comment({'post_id': post.id, 'body': content})
+                    comments = api.get_comments({'post_id': post.id})
+                break
+            if ch==ord('r'): # refresh comments
+                comments = api.get_comments({'post_id': post.id})
+                break
+            if ch in (ord('q'), 27, ord('p'), ord(' '), ord('\n')): # close the window
                 q = True
                 break
         if q: break
@@ -388,3 +434,6 @@ def show_comments(post, comments, metoo_yx):
     w.erase()
     w.refresh()
     del w
+
+class Error(Exception):
+    pass

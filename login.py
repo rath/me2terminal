@@ -87,7 +87,7 @@ def get_userid(parent):
     if len(user_id) > 2:
         ly, lx = logo_window.getbegyx()
         y, x = login_window.getbegyx()
-        for i in range(1, 15): 
+        for i in range(1, 1): 
             newy = y+i*1
             newly = ly-i*1
             try:
