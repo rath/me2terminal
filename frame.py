@@ -8,7 +8,7 @@ import curses
 
 import re
 from me2day import me2API
-import me2terminal, utils
+import me2terminal, utils, state as state_machine
 
 stdscr = None
 
@@ -17,13 +17,13 @@ def main_loop(parent, user_id):
     curses.noecho()
 
     show_tag = True
-    api = me2API(user_id, '73935122', '6c82a48d9fd3fee0b2819251cc4fef98')
+    api = me2API(user_id, '00000000', '6c82a48d9fd3fee0b2819251cc4fef98')
 
     curses.init_pair(1, curses.COLOR_YELLOW, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
     curses.init_pair(3, curses.COLOR_CYAN, curses.COLOR_BLACK) # time
     curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK) # body
-    curses.init_pair(5, curses.COLOR_BLUE, curses.COLOR_BLACK) # tag
+    curses.init_pair(5, curses.COLOR_CYAN, curses.COLOR_BLACK) # tag
     curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLACK) # metoo/comment count
     curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # highlighted username
     curses.init_pair(8, curses.COLOR_GREEN, curses.COLOR_BLACK) # status bar
@@ -31,16 +31,10 @@ def main_loop(parent, user_id):
     post_window = curses.newwin( curses.LINES-7, curses.COLS-4, 3, 1 )
     post_window.keypad(1)
 
-    offset = 0
     prev_printed_line = 0
 
-    cur_userid = user_id
-    scope = 'all'
-    scope_label = "미투데이"
-
-    cur_post = None # for navigate, row. (post_id)
-    cur_idx  = 0    # for navigate, column. (0, 1, 2, 3)
-    cur_row = -1
+    state = state_machine.State()
+    state.cur_userid = user_id
 
     skip_request = False
 
@@ -49,142 +43,96 @@ def main_loop(parent, user_id):
         if not skip_request:
             parent.addstr(parent.getmaxyx()[0]-2, 3, "서버에 요청을 보내고 있습니다. 잠시만 기다려주세요...", curses.A_BOLD | curses.color_pair(8))
             parent.refresh()
-        
             post_window.refresh()
 
-            posts = api.get_posts({
-                'offset': offset, 
+            state.posts = api.get_posts({
+                'offset': state.offset, 
                 'count' : 20, 
-                'scope' : scope
-            }, cur_userid)
+                'scope' : state.scope
+            }, state.cur_userid)
         skip_request = False
         
         parent.erase()
         me2terminal.paint_background(parent)
-        parent.addstr(1, 2, "  %s님의 " % (cur_userid), 
+        parent.addstr(1, 2, "  %s님의 " % (state.cur_userid), 
             curses.A_REVERSE | curses.A_BOLD | curses.color_pair(4))
-        parent.addstr("%s  " % scope_label,  
+        parent.addstr("%s  " % state.scope_label,  
             curses.A_REVERSE | curses.A_BOLD | curses.color_pair(4))
-        parent.addstr(1, curses.COLS-21, "%3d번째 글부터 표시" % (offset+1), curses.A_NORMAL)
+        parent.addstr(1, curses.COLS-21, "%3d번째 글부터 표시" % (state.offset+1), curses.A_NORMAL)
         parent.refresh()
 
         loc_map = {} # {post_id: the location of y}
 
-        printed_line = show_posts(post_window, posts, offset, show_tag, loc_map, cur_post, cur_idx)
+        show_posts(post_window, state, show_tag, loc_map)
 
         quit = False
         while True:
             ch = post_window.getch()
-            if ch==ord('1'): # my metoo
-                cur_userid = user_id
-                scope = 'all'
-                scope_label = '미투데이'
-                offset = 0
-                cur_idx = 0; cur_row = -1; cur_post = None
+            if ch==ord('1'): # my me2day
+                state.reset()
+                state.cur_userid = user_id
+                state.set_scope('all', '미투데이')
                 break
             if ch==ord('2'): # all friends
-                cur_userid = user_id
-                scope = 'friend[all]'
-                scope_label = '친구들은'
-                offset = 0
-                cur_idx = 0; cur_row = -1; cur_post = None
+                state.reset()
+                state.cur_userid = user_id
+                state.set_scope('friend[all]', '친구들은')
                 break
             if ch==ord('3'): # best friends
-                cur_userid = user_id
-                scope = 'friend[best]'
-                scope_label = '관심친구들은'
-                offset = 0
-                cur_idx = 0; cur_row = -1; cur_post = None
+                state.reset()
+                state.cur_userid = user_id
+                state.set_scope('friend[best]', '관심친구들은')
                 break
             if ch==ord('4'): # close friends
-                cur_userid = user_id
-                scope = 'friend[close]'
-                scope_label = '친한친구들은'
-                offset = 0
-                cur_idx = 0; cur_row = -1; cur_post = None
+                state.reset()
+                state.cur_userid = user_id
+                state.set_scope('friend[close]', '친한친구들은')
                 break
             if ch==ord('5'): # supporter friends
-                cur_userid = user_id
-                scope = 'friend[supporter]'
-                scope_label = '지지자들은'
-                offset = 0
-                cur_idx = 0; cur_row = -1; cur_post = None
+                state.reset()
+                state.cur_userid = user_id
+                state.set_scope('friend[supporter]', '친한친구들은')
                 break
 
-            redraw = lambda: show_posts(post_window, posts, offset, show_tag, loc_map, cur_post, cur_idx)
+            redraw = lambda: show_posts(post_window, state, show_tag, loc_map)
 
             if ch==ord('j') or ch==curses.KEY_DOWN: # move down 
-                if cur_idx==2:
-                    cur_idx += 1
-                    redraw()
-                elif cur_idx==3 and cur_row < printed_line:
-                    cur_idx -= 1
-                    cur_row += 1
-                    cur_post = posts[cur_row].id
-                    redraw()
-                elif cur_row < printed_line:
-                    cur_row += 1
-                    cur_post = posts[cur_row].id
-                    redraw()
-                pass
+                state.move_down()
+                redraw()
             if ch==ord('k') or ch==curses.KEY_UP: # move up 
-                if cur_idx==3:
-                    cur_idx -= 1
-                    redraw()
-                elif cur_idx==2 and cur_row > 0:
-                    cur_idx += 1
-                    cur_row -= 1
-                    cur_post = posts[cur_row].id
-                    redraw()
-                elif cur_row > 0:
-                    cur_row -= 1
-                    cur_post = posts[cur_row].id
-                    redraw()
-                pass
+                state.move_up()
+                redraw()
             if ch==ord('h') or ch==curses.KEY_LEFT: # move left 
-                if cur_idx > 0:
-                    cur_idx -= 1
+                if state.move_left():
                     redraw()
-                #elif cur_idx==0 and cur_row > 0:
-                #    cur_row -= 1
-                #    cur_idx = 3
-                #    cur_post = posts[cur_row].id
-                #    redraw()
-                    
             if ch==ord('l') or ch==curses.KEY_RIGHT: # move right
-                if cur_idx < 3:
-                    cur_idx += 1
+                if state.move_right():
                     redraw()
-                #elif cur_idx==3 and cur_row < printed_line:
-                #    cur_row += 1
-                #    cur_idx = 0
-                #    cur_post = posts[cur_row].id
-                #    redraw()
 
-            if ch==ord('\n') or ch==ord(' '):
+            if ch==ord('a'): # show all anchors
+                show_anchors(post_window, state.current_post())
+                redraw()
+
+            if ch==ord('\n') or ch==ord(' '): # select
                 # case cur_idx 
                 # cur_post
                 # 
-                if cur_post and cur_idx==0: # go to selected user's me2day.
-                    cur_userid = posts[cur_row].author.id.encode('utf-8')
-                    cur_idx = 0; cur_row = -1
-                    scope = 'all'
-                    scope_label = '미투데이'
-                    offset = 0
+                if state.is_me2day_id():
+                    state.go_me2day_id(state.posts[state.cur_row].author.id.encode('utf-8'))
                     break
-                if cur_post and cur_idx==1: # submit a metoo.
-                    api.metoo({'post_id': cur_post})
+                if state.is_metoo_action():
+                    api.metoo({'post_id': state.cur_post})
                     break
-                if cur_post and cur_idx==2: # view user list who clicked metoo.
-                    persons = api.get_metoos({'post_id': cur_post}) 
-                    show_metoos(persons, loc_map[cur_post])
+                if state.is_metoo_count():
+                    persons = api.get_metoos({'post_id': state.cur_post}) 
+                    show_metoos(persons, loc_map[state.cur_post])
                     redraw()
-                if cur_post and cur_idx==3: # show comments 
-                    show_comments(api, posts[cur_row], loc_map[cur_post])
+                if state.is_comment_count():
+                    show_comments(api, state.posts[state.cur_row])
                     redraw()
 
             if ch==ord('r'): # refresh current page.
-                cur_idx = 0; cur_row = -1
+                state.refresh()
                 break
             if ch==ord('i'): # input mode.
                 parent.addstr(parent.getmaxyx()[0]-4, 3, "     본문  ",
@@ -202,18 +150,15 @@ def main_loop(parent, user_id):
                 curses.noecho()
                 api.create_post({'post[body]':content, 'post[tags]':tags})
                 
-                offset = 0
-                cur_idx = 0; cur_row = -1
+                state.offset = 0
+                state.refresh()
                 break
                     
             if ch==ord('p'): # previous page
-                offset -= printed_line
-                if offset < 0: offset = 0
-                cur_idx = 0; cur_row = -1
+                state.go_previous_page()
                 break
             if ch==ord('n'): # next page
-                offset += printed_line
-                cur_idx = 0; cur_row = -1
+                state.go_next_page()
                 break
             if ch==ord('q') or ch==27: # quit 
                 quit = True
@@ -229,10 +174,22 @@ def p_nickname(w, y, x, nickname, selected):
     except:
         pass
 
+def cline(body, width):
+    """
+    body - body text as unicode.
+    """
+    if len(body) <= (width-2):
+        return 1
+    return (len(body)-1) / (width-2) + 1
+
 def p_wrap(w, y, x, body, limit_y, limit_x):
     lines = 1
     body = re.sub("<a href='http://me2day\.net/([A-Za-z0-9-_]+)'>(.+?)</a>", "\x01\\2\x02", body)
+    # XXX: 아래와 같지만 앞뒤에 [ ] 가 없다면 핑백날린 글이므로 링크되면 되겠다~ 에헴. 
     body = re.sub("\[<a href='http://me2day\.net/([A-za-z0-9-_]+)/[0-9]{4}/[0-9]{2}/[0-9]{2}#.+?'>(.+?)</a>\]", "\x01%s\x02" % (u'[핑백받은글]'), body)
+    body = re.sub("<a href='([^']+)'>([^<]+)</a>", "\x0a\\2\x04", body)
+    w.move(y, x)
+
     color_attr = curses.color_pair(4)
     style_attr = curses.A_NORMAL
     for ch in body:
@@ -251,6 +208,9 @@ def p_wrap(w, y, x, body, limit_y, limit_x):
         elif ch=='\x05':
             color_attr = curses.color_pair(3)
             continue
+        elif ch=='\x0a':
+            style_attr = curses.A_UNDERLINE | curses.A_BOLD
+            continue
         w.addstr(ch.encode('utf-8'), style_attr | color_attr)
         if w.getyx()[1]+2 >= limit_x:
             if y+lines > limit_y:
@@ -259,7 +219,71 @@ def p_wrap(w, y, x, body, limit_y, limit_x):
             lines += 1
     return lines
 
-def show_posts(post_window, posts, offset, show_tag, loc_map, cur_post, cur_idx):
+def show_anchors(post_window, post):
+    pattern = re.compile("<a href='([^']+)'>([^<]*)</a>")
+    anchor_count = len(pattern.findall(post.body))
+    if anchor_count==0:
+        return
+    limit_x = curses.COLS-14-2
+    rows = reduce(lambda x, y: x+y, map(lambda m: cline(m.group(1), limit_x) + cline(m.group(2), limit_x), pattern.finditer(post.body))) + 2
+    w = curses.newwin(rows, limit_x+2, (curses.LINES-rows)/2, (curses.COLS-limit_x)/2)
+
+    
+    cur_link = -1
+    while True:
+        w.erase()
+        w.border()
+        cur_anchor = None
+
+        cur_row = 0
+        y, x = (1, 3)
+        for m in pattern.finditer(post.body):
+            anchor = m.group(1)
+            message = m.group(2)
+            y += p_wrap(w, y, x, "\x01%s\x02" % message, rows, limit_x)
+            if cur_row==cur_link:
+                cur_anchor = anchor
+                anchor = "\x03%s\x04" % anchor
+            y += p_wrap(w, y, x, anchor, rows, limit_x)
+            cur_row += 1
+        row_count = cur_row
+        w.refresh()
+
+        ch = w.getch()
+        if ch==ord('j') or ch==curses.KEY_DOWN: # move down 
+            if cur_link==-1:
+                cur_link = 0
+            elif cur_link < row_count-1:
+                cur_link += 1
+        if ch==ord('k') or ch==curses.KEY_UP:   # move up 
+            if cur_link==-1:
+                cur_link = row_count - 1
+            elif cur_link > 0:
+                cur_link -= 1
+        if ch==ord('\n') or ch==ord(' '): # select 
+            if cur_anchor:
+                m = re.match("http://me2day\.net/([A-Za-z0-9_-]+)", cur_anchor)
+                if m:
+                    state.go_me2day_id(m.group(1).encode('utf-8'))
+                    break
+                m = re.match("http://me2day\.net/[A-Za-z0-9_-]+/[0-9]{4}/[0-9]{2}/[0-9]{2}#[0-9]{2}:[0-9]{2}:[0-9]{2}")
+                if m:
+                    state.
+                if re.match("http://me2day\.net/[A-Za-z0-9_-]+", cur_anchor):
+                     
+                    
+            pass 
+        if ch==27 or ch==ord('p') or ch==ord('q'): # exit
+            break
+
+    del w
+    
+def show_posts(post_window, state, show_tag, loc_map):
+    offset = state.offset
+    cur_post = state.cur_post
+    cur_idx = state.cur_idx
+    posts = state.posts
+
     post_window.erase()
     limit_y = post_window.getmaxyx()[0] - 1
     printed_line = 0
@@ -281,7 +305,7 @@ def show_posts(post_window, posts, offset, show_tag, loc_map, cur_post, cur_idx)
         # 내용
         x += 10 + 2
         content_w = post_window.getmaxyx()[1]-x-10
-        body = post.body_as_text
+        body = post.body
         post_window.move(y, x)
         content_lines = p_wrap(post_window, y, x, body, limit_y, x+content_w)
 
@@ -334,7 +358,7 @@ def show_posts(post_window, posts, offset, show_tag, loc_map, cur_post, cur_idx)
         printed_line += 1
 
     post_window.refresh()
-    return printed_line
+    state.printed_line = printed_line
 
 # it may be broken, when metoo user count is greater than 40. 
 # and need to navigate from user lists and go to user's home.
@@ -360,7 +384,7 @@ def show_metoos(persons, metoo_yx):
     w.refresh()
     del w
 
-def show_comments(api, post, metoo_yx):
+def show_comments(api, post):
     cols = curses.COLS-10
     rows = curses.LINES-10
 
@@ -368,7 +392,6 @@ def show_comments(api, post, metoo_yx):
 
     limit_y = rows-5
     w = curses.newwin(rows, cols, (curses.LINES-rows)/2, (curses.COLS-cols)/2)
-
 
     scroll_offset = 0
     while True:

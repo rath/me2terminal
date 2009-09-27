@@ -151,6 +151,7 @@ class me2API:
             p.me2dayHome = f['me2dayHome']
             p.friendsCount = f['friendsCount']
             p.updated = f['updated']
+            p.homepage = f['homepage']
             ret.append(p)
         return ret
 
