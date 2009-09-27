@@ -16,7 +16,6 @@ def main_loop(parent, user_id):
     stdscr = parent
     curses.noecho()
 
-    show_tag = True
     api = me2API(user_id, '00000000', '6c82a48d9fd3fee0b2819251cc4fef98')
 
     curses.init_pair(1, curses.COLOR_YELLOW, curses.COLOR_BLACK)
@@ -34,6 +33,8 @@ def main_loop(parent, user_id):
     prev_printed_line = 0
 
     state = state_machine.State()
+    state.parent = parent
+    state.post_window = post_window
     state.cur_userid = user_id
 
     skip_request = False
@@ -50,20 +51,10 @@ def main_loop(parent, user_id):
                 'count' : 20, 
                 'scope' : state.scope
             }, state.cur_userid)
+            state.need_to_request = False
         skip_request = False
         
-        parent.erase()
-        me2terminal.paint_background(parent)
-        parent.addstr(1, 2, "  %s님의 " % (state.cur_userid), 
-            curses.A_REVERSE | curses.A_BOLD | curses.color_pair(4))
-        parent.addstr("%s  " % state.scope_label,  
-            curses.A_REVERSE | curses.A_BOLD | curses.color_pair(4))
-        parent.addstr(1, curses.COLS-21, "%3d번째 글부터 표시" % (state.offset+1), curses.A_NORMAL)
-        parent.refresh()
-
-        loc_map = {} # {post_id: the location of y}
-
-        show_posts(post_window, state, show_tag, loc_map)
+        state.draw_background()
 
         quit = False
         while True:
@@ -94,7 +85,7 @@ def main_loop(parent, user_id):
                 state.set_scope('friend[supporter]', '친한친구들은')
                 break
 
-            redraw = lambda: show_posts(post_window, state, show_tag, loc_map)
+            redraw = lambda: show_posts(state)
 
             if ch==ord('j') or ch==curses.KEY_DOWN: # move down 
                 state.move_down()
@@ -110,8 +101,11 @@ def main_loop(parent, user_id):
                     redraw()
 
             if ch==ord('a'): # show all anchors
-                show_anchors(post_window, state.current_post())
-                redraw()
+                show_anchors(api, post_window, state)
+                if state.need_to_request:
+                    break
+                else:
+                    redraw()
 
             if ch==ord('\n') or ch==ord(' '): # select
                 # case cur_idx 
@@ -125,7 +119,7 @@ def main_loop(parent, user_id):
                     break
                 if state.is_metoo_count():
                     persons = api.get_metoos({'post_id': state.cur_post}) 
-                    show_metoos(persons, loc_map[state.cur_post])
+                    show_metoos(persons, state.loc_map[state.cur_post])
                     redraw()
                 if state.is_comment_count():
                     show_comments(api, state.posts[state.cur_row])
@@ -219,7 +213,8 @@ def p_wrap(w, y, x, body, limit_y, limit_x):
             lines += 1
     return lines
 
-def show_anchors(post_window, post):
+def show_anchors(api, post_window, state): 
+    post = state.current_post()
     pattern = re.compile("<a href='([^']+)'>([^<]*)</a>")
     anchor_count = len(pattern.findall(post.body))
     if anchor_count==0:
@@ -228,7 +223,6 @@ def show_anchors(post_window, post):
     rows = reduce(lambda x, y: x+y, map(lambda m: cline(m.group(1), limit_x) + cline(m.group(2), limit_x), pattern.finditer(post.body))) + 2
     w = curses.newwin(rows, limit_x+2, (curses.LINES-rows)/2, (curses.COLS-limit_x)/2)
 
-    
     cur_link = -1
     while True:
         w.erase()
@@ -262,27 +256,27 @@ def show_anchors(post_window, post):
                 cur_link -= 1
         if ch==ord('\n') or ch==ord(' '): # select 
             if cur_anchor:
-                m = re.match("http://me2day\.net/([A-Za-z0-9_-]+)", cur_anchor)
+                m = re.match("http://me2day\.net/([A-Za-z0-9_-]+)$", cur_anchor)
                 if m:
                     state.go_me2day_id(m.group(1).encode('utf-8'))
                     break
-                m = re.match("http://me2day\.net/[A-Za-z0-9_-]+/[0-9]{4}/[0-9]{2}/[0-9]{2}#[0-9]{2}:[0-9]{2}:[0-9]{2}")
+                m = re.match("http://me2day\.net/[A-Za-z0-9_-]+/[0-9]{4}/[0-9]{2}/[0-9]{2}#[0-9]{2}:[0-9]{2}:[0-9]{2}", cur_anchor)
                 if m:
-                    state.
-                if re.match("http://me2day\.net/[A-Za-z0-9_-]+", cur_anchor):
-                     
-                    
-            pass 
+                    find_post = api.get_post({'post_id': cur_anchor})
+                    show_comments(api, find_post[0])
+                    state.draw_background()
         if ch==27 or ch==ord('p') or ch==ord('q'): # exit
             break
 
     del w
     
-def show_posts(post_window, state, show_tag, loc_map):
+def show_posts(state):
     offset = state.offset
     cur_post = state.cur_post
     cur_idx = state.cur_idx
     posts = state.posts
+    post_window = state.post_window
+    loc_map = state.loc_map
 
     post_window.erase()
     limit_y = post_window.getmaxyx()[0] - 1
@@ -316,7 +310,7 @@ def show_posts(post_window, state, show_tag, loc_map):
         post_window.addstr("%2d일%02d:%02d" % (post.date.day, post.date.hour, post.date.minute), curses.A_NORMAL | curses.color_pair(3)) 
         
         # 태그 
-        if show_tag and len(post.tags)>0:
+        if len(post.tags)>0:
             if y+content_lines > limit_y:
                 break
             post_window.move(y+content_lines, x)
