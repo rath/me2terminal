@@ -177,6 +177,11 @@ class me2API:
         return self._get("/api/get_posts/%s.json?%s" % (username, querystring), 
             self._process_get_posts)
 
+    def get_post(self, params={}):
+        querystring = urllib.urlencode(params)
+        return self._get("/api/get_posts.json?%s" % (querystring), 
+            self._process_get_posts)
+
     def get_comments(self, params={}, username=None):
         if not username:
             username = self.username
