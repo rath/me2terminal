@@ -119,8 +119,11 @@ def main_loop(parent, user_id):
                     break
                 if state.is_metoo_count():
                     persons = api.get_metoos({'post_id': state.cur_post}) 
-                    show_metoos(persons, state.loc_map[state.cur_post])
-                    redraw()
+                    show_metoos(state, persons, state.loc_map[state.cur_post])
+                    if state.need_to_request: 
+                        break
+                    else:
+                        redraw()
                 if state.is_comment_count():
                     show_comments(api, state.posts[state.cur_row])
                     redraw()
@@ -356,26 +359,58 @@ def show_posts(state):
 
 # it may be broken, when metoo user count is greater than 40. 
 # and need to navigate from user lists and go to user's home.
-def show_metoos(persons, metoo_yx):
+def show_metoos(state, persons, metoo_yx):
     cols = 40 + 4 
     rows = len(persons)/4 + 1 + 2
     
     if metoo_yx[0] + rows > curses.LINES-1: # fix y location to prevent overflow 
         metoo_yx = (curses.LINES-1-rows, metoo_yx[1]) 
     w = curses.newwin(rows, cols, metoo_yx[0], metoo_yx[1]-cols)
-    w.border()
-    x, y = (3, 1)
-    for i in range(len(persons)):
-        w.addstr(y, x, persons[i][0].nickname.encode('utf-8'), 
-            curses.A_UNDERLINE | curses.color_pair(1))
-        x += 10
-        if (i+1)%4==0:
-            y += 1
-            x = 3
+
+    cur_index = -1
+    while True:
+        w.erase()
+        w.border()
+        x, y = (3, 1)
+        for i in range(len(persons)):
+            style = 0
+            if i==cur_index: style = curses.A_REVERSE
+
+            w.addstr(y, x, persons[i][0].nickname.encode('utf-8'), 
+                curses.A_UNDERLINE | curses.color_pair(1) | style)
+            x += 10
+            if (i+1)%4==0:
+                y += 1
+                x = 3
+        w.refresh()
         
-    w.getch()
-    w.erase()
-    w.refresh()
+        ch = w.getch()
+        if ch==ord('h') or ch==curses.KEY_LEFT: # left 
+            if cur_index==-1:
+                cur_index = len(persons)-1
+            elif cur_index > 0:
+                cur_index -= 1
+        if ch==ord('j') or ch==curses.KEY_DOWN: # down
+            if cur_index==-1:
+                cur_index = 0
+            elif cur_index+4 <= len(persons):
+                cur_index += 4
+        if ch==ord('k') or ch==curses.KEY_UP:   # up
+            if cur_index==-1:
+                cur_index = len(persons)-4
+            elif cur_index-4 >= 0:
+                cur_index -= 4
+        if ch==ord('l') or ch==curses.KEY_RIGHT:# right
+            if cur_index==-1:
+                cur_index = 0
+            elif cur_index+1 < len(persons):
+                cur_index += 1
+        if ch==ord('p') or ch==ord('q') or ch==27: # quote
+            break
+        if ch==ord(' ') or ch==ord('\n'): # select
+            if cur_index!=-1:
+                state.go_me2day_id(persons[cur_index][0].id.encode('utf-8'))
+            break
     del w
 
 def show_comments(api, post):
