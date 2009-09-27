@@ -170,6 +170,56 @@ class me2API:
     def _process_metoo(self, json_data):
         return (json_data['code'], json_data['message'], json_data['description'])
 
+    def _process_track_comments(self, json_data):
+        to_me = []
+        by_me = []
+        for comment_by_me in json_data['comment_by_mes']:
+            cmt = comment_by_me['comment']
+            c = Comment()
+            c.id = cmt['commentId']
+            c.body = cmt['body']
+            c.date = datetime.strptime(cmt['pubDate'][:19], "%Y-%m-%dT%H:%M:%S")
+            c.author = None # because you are the author!
+
+            post = comment_by_me['post']
+            p = Post()
+            p.id = post['post_id']
+            p.permalink = post['permalink']
+            p.body = post['body']
+
+            author = Person()
+            author.id = post['author']['id']
+            author.nickname = post['author']['nickname']
+            author.me2day_home = post['author']['me2dayHome']
+            author.face = post['author']['face']
+            p.author = author
+
+            by_me.append((p, c))
+
+        for comment_to_me in json_data['comment_to_mes']:
+            cmt = comment_to_me['comment']
+            c = Comment()
+            c.id = cmt['commentId']
+            c.body = cmt['body']
+            c.date = datetime.strptime(cmt['pubDate'][:19], "%Y-%m-%dT%H:%M:%S")
+
+            author = Person()
+            author.id = cmt['author']['id']
+            author.nickname = cmt['author']['nickname']
+            author.me2day_home = cmt['author']['me2dayHome']
+            author.face = cmt['author']['face']
+            c.author = author
+
+            post = comment_to_me['post']
+            p = Post()
+            p.id = post['post_id']
+            p.permalink = post['permalink']
+            p.body = post['body']
+
+            to_me.append((p, c))
+
+        return {'to_me': to_me, 'by_me': by_me}
+
     def get_posts(self, params={}, username=None):
         if not username:
             username = self.username
@@ -209,6 +259,22 @@ class me2API:
         if not username and not self.username:
             raise Error('username and userkey must be set')
         return self._post("/api/create_post.json", None, params)
+
+    def track_comments(self, params={}, username=None):
+        """
+        Supported parameters:
+        * scope - all: merge 'by_me' and 'to_me'.
+        *         by_me: a list consists of comments which are written by me.
+        *         to_me: a list consists of comments which are written by other users.
+        * count - count of returned comments. it can be between 0 and 100.
+        """
+        if not username and not self.username:
+            raise Error('username must be set')
+        if not username:
+            username = self.username
+        querystring = urllib.urlencode(params)
+        return self._get("/api/track_comments/%s.json?%s" % (username, querystring),
+            self._process_track_comments)
 
     def get_friends(self, params={}, username=None):
         """
