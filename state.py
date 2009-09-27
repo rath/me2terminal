@@ -122,7 +122,7 @@ class State:
             curses.A_REVERSE | curses.A_BOLD | curses.color_pair(4))
         self.parent.addstr("%s  " % self.scope_label,  
             curses.A_REVERSE | curses.A_BOLD | curses.color_pair(4))
-        self.parent.addstr(1, curses.COLS-21, "%3d번째 글부터 표시" % (self.offset+1), curses.A_NORMAL)
+        self.parent.addstr(1, self.post_window.getmaxyx()[1]-21, "%3d번째 글부터 표시" % (self.offset+1), curses.A_NORMAL)
         self.parent.refresh()
 
         self.loc_map = {}

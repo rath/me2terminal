@@ -13,6 +13,7 @@ import me2terminal, utils, state as state_machine
 stdscr = None
 
 def main_loop(parent, user_id):
+    global stdscr
     stdscr = parent
     curses.noecho()
 
@@ -27,7 +28,7 @@ def main_loop(parent, user_id):
     curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # highlighted username
     curses.init_pair(8, curses.COLOR_GREEN, curses.COLOR_BLACK) # status bar
 
-    post_window = curses.newwin( curses.LINES-7, curses.COLS-4, 3, 1 )
+    post_window = curses.newwin( stdscr.getmaxyx()[0]-7, stdscr.getmaxyx()[1]-4, 3, 1 )
     post_window.keypad(1)
 
     prev_printed_line = 0
@@ -59,6 +60,13 @@ def main_loop(parent, user_id):
         quit = False
         while True:
             ch = post_window.getch()
+            if ch==curses.KEY_RESIZE: # when user resize terminal
+                del post_window
+                post_window = curses.newwin( stdscr.getmaxyx()[0]-7, stdscr.getmaxyx()[1]-4, 3, 1 )
+                post_window.keypad(1)
+                state.post_window = post_window
+                skip_request = True
+                break
             if ch==ord('1'): # my me2day
                 state.reset()
                 state.cur_userid = user_id
@@ -84,6 +92,12 @@ def main_loop(parent, user_id):
                 state.cur_userid = user_id
                 state.set_scope('friend[supporter]', '친한친구들은')
                 break
+            if ch==ord('9'): # comments by me
+                state.reset()
+                state.cur_userid = user_id
+            if ch==ord('0'): # comments to me 
+                state.reset()
+                state.cur_userid = user_id
 
             redraw = lambda: show_posts(state)
 
@@ -222,9 +236,9 @@ def show_anchors(api, post_window, state):
     anchor_count = len(pattern.findall(post.body))
     if anchor_count==0:
         return
-    limit_x = curses.COLS-14-2
+    limit_x = stdscr.getmaxyx()[1]-14-2
     rows = reduce(lambda x, y: x+y, map(lambda m: cline(m.group(1), limit_x) + cline(m.group(2), limit_x), pattern.finditer(post.body))) + 2
-    w = curses.newwin(rows, limit_x+2, (curses.LINES-rows)/2, (curses.COLS-limit_x)/2)
+    w = curses.newwin(rows, limit_x+2, (stdscr.getmaxyx()[0]-rows)/2, (stdscr.getmaxyx()[1]-limit_x)/2)
 
     cur_link = -1
     while True:
@@ -363,8 +377,8 @@ def show_metoos(state, persons, metoo_yx):
     cols = 40 + 4 
     rows = len(persons)/4 + 1 + 2
     
-    if metoo_yx[0] + rows > curses.LINES-1: # fix y location to prevent overflow 
-        metoo_yx = (curses.LINES-1-rows, metoo_yx[1]) 
+    if metoo_yx[0] + rows > stdscr.getmaxyx()[0]-1: # fix y location to prevent overflow 
+        metoo_yx = (stdscr.getmaxyx()[0]-1-rows, metoo_yx[1]) 
     w = curses.newwin(rows, cols, metoo_yx[0], metoo_yx[1]-cols)
 
     cur_index = -1
@@ -414,13 +428,13 @@ def show_metoos(state, persons, metoo_yx):
     del w
 
 def show_comments(api, post):
-    cols = curses.COLS-10
-    rows = curses.LINES-10
+    cols = stdscr.getmaxyx()[1] - 10
+    rows = stdscr.getmaxyx()[0] - 10
 
     comments = api.get_comments({'post_id': post.id})
 
     limit_y = rows-5
-    w = curses.newwin(rows, cols, (curses.LINES-rows)/2, (curses.COLS-cols)/2)
+    w = curses.newwin(rows, cols, (stdscr.getmaxyx()[0]-rows)/2, (stdscr.getmaxyx()[1]-cols)/2)
 
     scroll_offset = 0
     while True:
