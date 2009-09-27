@@ -14,7 +14,7 @@ def paint_background(window):
     window.border()
     copyright = " me2terminal by rath "
     window.addstr(
-        curses.LINES-1, curses.COLS-len(copyright)-3, 
+        window.getmaxyx()[0]-1, window.getmaxyx()[1]-len(copyright)-3,
         copyright, curses.A_NORMAL)
 
 if __name__=='__main__':

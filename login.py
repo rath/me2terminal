@@ -20,14 +20,26 @@ LOGO_W = 66
 LOGO_H = 6
 
 title = "Welcome to me2terminal!"
+logo_window = None
+login_window = None
+label_id = "me2DAY ID: "
 
-def _input(w, y, x):
+def _input(parent, w, y, x):
     curses.noecho()
     w.keypad(1)
     w.move(y, x)
     user_id = ''
+
     while True:
         ch = w.getch()
+        if ch==curses.KEY_RESIZE:
+            draw_login_window(parent)
+            w = login_window 
+            w.keypad(1)
+            w.move(y, x)
+            w.addstr(user_id, curses.A_UNDERLINE)
+            continue
+
         if ch==curses.KEY_ENTER or ch==ord('\n') or ch==ord('\r'):
             if len(user_id)>2:
                 break
@@ -56,10 +68,29 @@ def _input(w, y, x):
     w.keypad(0)
     return user_id 
 
-def get_userid(parent):
+def draw_login_window(parent):
+    global login_window
+    global logo_window
+
+    if login_window:
+        login_window.erase()
+        login_window.refresh()
+        del login_window
+    if logo_window:
+        logo_window.erase()
+        logo_window.refresh()
+        del logo_window
+
+    parent.erase()
+    me2terminal.paint_background(parent)
+    parent.refresh()
+
+    LINES = parent.getmaxyx()[0]
+    COLS = parent.getmaxyx()[1]
+
     # logo window
-    logo_y = (curses.LINES-LOGO_H) / 2 - 4
-    logo_window = curses.newwin(LOGO_H, LOGO_W, logo_y, (curses.COLS-LOGO_W)/2)
+    logo_y = (LINES-LOGO_H) / 2 - 4
+    logo_window = curses.newwin(LOGO_H, LOGO_W, logo_y, (COLS-LOGO_W)/2)
     line = 1
     for logo_line in LOGO:
         logo_window.addstr(line, 1, logo_line)
@@ -71,18 +102,23 @@ def get_userid(parent):
     login_window = curses.newwin(
         login_height, login_width, 
         logo_y + LOGO_H + 1,
-        (curses.COLS-login_width)/2)
+        (COLS-login_width)/2)
     login_window.border()
     login_window.addstr(1, 1, 
         expand_to(title, login_width-2), 
         curses.A_REVERSE | curses.A_BOLD)
-    label_id = "me2DAY ID: "
     login_window.addstr(3, 4, label_id)
     login_window.addstr(' ' * (login_width-2-length(label_id)-8), curses.A_UNDERLINE)
     login_window.addstr(5, login_width-2-length("[Enter]"), "[Enter]")
     login_window.refresh()
 
-    user_id = _input(login_window, 3, 4+length(label_id))
+def get_userid(parent):
+    global logo_window
+    global login_window
+
+    draw_login_window(parent)
+
+    user_id = _input(parent, login_window, 3, 4+length(label_id))
     # It's show time! Let's move both windows to the right corner.
     if len(user_id) > 2:
         ly, lx = logo_window.getbegyx()
@@ -93,7 +129,7 @@ def get_userid(parent):
             try:
                 if newly <= 1: newly = 1
                 logo_window.mvwin(newly, lx)
-                if newy >= curses.LINES-8: newy = curses.LINES-8
+                if newy >= parent.getmaxyx()[0]-8: newy = parent.getmaxyx()[0]-8
                 login_window.mvwin(newy, x)
             except:
                 break
